@@ -188,6 +188,7 @@ class ExportFrame(
         self,
         ofn: str,
         potcar_root: str,
+        pseudopot_atom: list[str] = [],
     ):
         """vaspのPOTCARファイルを作成する.
         Parameters
@@ -196,18 +197,34 @@ class ExportFrame(
                 出力先のファイルパス
             potcar_root: str
                 potcarが入っているフォルダのパス
+            pseudopot_atom: list[str]
+                POTCARを作成したいPOTLIST内のpseudopotentialsファイル名
         """
         potcar_root = pathlib.Path(potcar_root)
         make_potcar_command_list = ["cat"]
 
         atom_symbol_to_atom_counter = self.count_atom_types(res_type='dict')
-        for atom_type in range(1, len(self.atom_type_to_symbol) + 1):
-            atom_symbol = self.atom_type_to_symbol[atom_type]
-            if atom_symbol in atom_symbol_to_atom_counter and atom_symbol_to_atom_counter[atom_symbol] != 0:
-                potcar_path = potcar_root / atom_symbol / "POTCAR"
+        print(atom_symbol_to_atom_counter)
+        if len(pseudopot_atom) == 0:
+            print(self.atom)
+            for atom_type in range(1, len(self.atom_type_to_symbol) + 1):
+                atom_symbol = self.atom_type_to_symbol[atom_type]
+                if atom_symbol in atom_symbol_to_atom_counter and atom_symbol_to_atom_counter[atom_symbol] != 0:
+                    potcar_path = potcar_root / atom_symbol / "POTCAR"
+                    make_potcar_command_list.append(f"{potcar_path.resolve()}")
+            make_potcar_command_list.append(f" > {ofn}")
+            make_potcar_command = " ".join(make_potcar_command_list)
+            print(make_potcar_command)
+            
+        elif len(pseudopot_atom) > 0:
+            for pseudopot_atom_type in pseudopot_atom:
+                potcar_path = potcar_root / pseudopot_atom_type / "POTCAR"
                 make_potcar_command_list.append(f"{potcar_path.resolve()}")
-        make_potcar_command_list.append(f" > {ofn}")
-        make_potcar_command = " ".join(make_potcar_command_list)
+            make_potcar_command_list.append(f" > {ofn}")
+            make_potcar_command = " ".join(make_potcar_command_list)
+            assert len(pseudopot_atom) == len(atom_symbol_to_atom_counter), "Add all kind of atoms in pseudopot_atom: sf.vasp()"
+            for atom_type_num in range(len(pseudopot_atom)):
+                assert pseudopot_atom[atom_type_num][0:len(list(atom_symbol_to_atom_counter.keys())[atom_type_num])] in list(atom_symbol_to_atom_counter.keys()), "Error: The order must be the same" 
         subprocess.run(make_potcar_command, shell=True)
 
     def export_dumppos(self, ofn: str, time_step: int = None, out_columns=None) -> None:

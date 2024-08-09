@@ -45,6 +45,7 @@ class Calculate(
             contcar_path: str = "",
             place: str = "kbox",
             num_nodes: int = 1,
+            pseudopot_atom: list[str] = [],
     ):
         """vaspを実行する.
         Parameters
@@ -116,7 +117,7 @@ class Calculate(
         else:
             self.export_vasp_poscar_from_contcar(poscar_path, contcar_path)
         self.export_vasp_incar(incar_path, incar_config)
-        self.export_vasp_potcar(potcar_path, potcar_root)
+        self.export_vasp_potcar(potcar_path, potcar_root, pseudopot_atom)
         self.export_vasp_kpoints(
             kpoints_path, kpoints_comment, kpoints_kx, kpoints_ky, kpoints_kz)
 

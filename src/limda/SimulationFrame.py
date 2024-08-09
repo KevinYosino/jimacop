@@ -444,3 +444,95 @@ class SimulationFrame(
 
         if change_cellsize:
             self.cell += np.array(slide_length)
+
+    def make_magmom_antimagnetic_body_str(self, initial_magmom: list[float], 
+                                          magnetic_atom_type: list[int] =[],
+                                          nearest_neighbor_distance: list[list[float]]=[[]]) -> str:
+        """
+        反強磁性体のvaspのMAGMOM(初期磁気モーメントを決めるパラメーター)を設定できます。
+        MAGMOMの仕様
+        -------
+            例えばparaが"O Fe"で酸素が6つ鉄が4つ入った系を考えます。
+            Fe2O3は反強磁性体であるため "0 0 0 0 0 0 -3.8 3.8 -3.8 3.8"のように
+            酸素はmagmomが0, 鉄はmagomomの大きさが3.8で隣り合う酸素とは正負を逆に取る必要性があります。
+            ちなみに鉄のmagmomを同じ符号で統一すると強磁性体になるため誤った計算結果を返すことが予想されます。
+        Parameter
+        ---------
+            initial_magmom: list[float]
+                atomtypeごとの初期磁気モーメントの大きさが入ったlistです。
+
+            magnetic_atom_type: list[int]
+                反磁性体のatomtypeが入ったlistです。
+                この配列に格納されたatomtypeのmagmomは最近接反磁性原子間での値の正負が逆転する。
+                注意: 指定できる原子種は1種類だけです。
+            
+            nearest_neighbor_distance : list[float]
+                magnetic_atom_typeで指定したatomtypeの第一近接距離が入ったlistです。
+                ある原子のmagmomを負に指定し、その第一近接原子のmagmomを正に指定するため必要です。
+
+                例 : "C H O P S Zn Fe"がparaに設定されている場合
+                          initial_magmom = [0, 0, 0, 0, 0, 0, 3.8] 
+                          magnetic_atom_type = [7] 
+                          nearest_neighbor_distance = [
+                                    [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                                    [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                                    [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                                    [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                                    [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                                    [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                                    [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 3.5], 
+                                    ]                                           
+                        と指定します。
+            nearest_neighbor_distance[6][6]に格納されている値が鉄原子の第一近接距離です。
+            鉄-鉄間の原子以外は適当な値を入れておいてください。
+            
+        Returnval
+        ---------
+            magmom_str: str 
+                MAGMOMにこのstrを指定すればokです。
+        """
+        assert(len(magnetic_atom_type) > 0)
+        magmom_dict = np.zeros(len(self.atoms))
+        for atomtype in magnetic_atom_type:
+            neighbor_list = self.get_neighbor_list(mode="bond_length", bond_length=nearest_neighbor_distance)
+            first_atom_num = self.atoms.loc[self.atoms["type"] == atomtype].index[0]
+            magmom_dict[first_atom_num] = initial_magmom[atomtype-1]
+            initial_magmom[atomtype-1] *= -1
+
+            #1つ目の対象の原子の再隣接原子をqueueに入れる
+            atoms_queue = []
+            for queue_neighbor_num in neighbor_list[first_atom_num]:
+                if queue_neighbor_num in self.atoms.loc[self.atoms["type"] == atomtype].index:
+                    if queue_neighbor_num not in atoms_queue:
+                        atoms_queue.append(queue_neighbor_num)
+            atoms_queue.append(-1)
+            #queueで隣の原子に符号が逆のmagmomを与える
+            loop_num = 0
+            while len(atoms_queue) > 0 and atoms_queue!= [-1]:
+                if atoms_queue[0] >= 0:
+                    if magmom_dict[atoms_queue[0]] == 0:
+                        magmom_dict[atoms_queue[0]] = initial_magmom[atomtype-1]
+                        #最近接同一原子かつmagmomが与えられていない原子の番号をqueueに入れる
+                        for queue_neighbor_num in neighbor_list[atoms_queue[0]]:
+                            if queue_neighbor_num in self.atoms.loc[self.atoms["type"] == atomtype].index:
+                                if magmom_dict[queue_neighbor_num] == 0 and queue_neighbor_num not in atoms_queue:
+                                    atoms_queue.append(queue_neighbor_num)
+                        atoms_queue.pop(0)
+                else:
+                    initial_magmom[atomtype-1] *= -1
+                    atoms_queue.pop(0)
+                    atoms_queue.append(-1)
+                if loop_num > 10*30:
+                    print("ERROR: Too much loop")
+                    break
+                loop_num += 1
+        assert (len(self.atoms.loc[self.atoms["type"] == atomtype].index) == len(list(filter(lambda x: x != 0, magmom_dict)))) 
+        #self.atoms = self.atoms.assign(magmom=magmom_dict)
+        
+        magmom_str = ""
+        for magmom_dict_element in magmom_dict:
+            magmom_str += str(magmom_dict_element)
+            magmom_str += " "
+
+        magmom_str = magmom_str[:-1]
+        return magmom_str

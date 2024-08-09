@@ -296,3 +296,116 @@ class AnalyzeFrame:
             neighbor_list_brute[idx] = sorted(neighbor_list_brute[idx])
 
         return neighbor_list_brute
+
+    def get_bond_length(self, cut_off: float) -> list[list[float]]:
+
+        """
+        neighbor_listを利用してcutoff内の2原子間の距離を結合種ごとに分類します。
+
+        Return
+        ------
+            Dataset_radial_distribution_checker(config)に各原子組の距離が格納されるようにする。
+            C-C: 1.8000, 1.9800, 1.6000...
+            C-H: 1.1000, 1.2500, 1.0500...
+            .
+            .
+            .
+            Fe-Fe: 2.5000, 2.80000, 2.4600....
+        """
+
+        neighbor_list = self.get_neighbor_list(
+            mode="cut_off", cut_off=cut_off,
+        )
+        atom_types = self.atoms["type"].values
+        bond_length_list = [
+            [[] for _ in range(len(self.atom_symbol_to_type))] for _ in range(len(self.atom_symbol_to_type))
+        ]
+        for atom_i_idx in range(self.get_total_atoms()):
+            atom_i_type = atom_types[atom_i_idx]
+            for atom_j_idx in neighbor_list[atom_i_idx]:
+                if atom_i_idx < atom_j_idx:
+                    atom_j_type = atom_types[atom_j_idx]
+                    ij_vector: list[float] = [self.atoms["x"][atom_i_idx] - self.atoms["x"][atom_j_idx],
+                                              self.atoms["y"][atom_i_idx] - self.atoms["y"][atom_j_idx],
+                                              self.atoms["z"][atom_i_idx] - self.atoms["z"][atom_j_idx]]
+                    for ax in range(3):
+                        if ij_vector[ax] < -self.cell[ax]/2:
+                            ij_vector[ax] += self.cell[ax]
+                        elif ij_vector[ax] > self.cell[ax]/2:
+                            ij_vector[ax] -= self.cell[ax]
+                        
+                    bond_length_i_and_j = np.sqrt(ij_vector[0]**2 + ij_vector[1]**2 + ij_vector[2]**2)
+                    #print(bond_length_i_and_j)
+                    assert bond_length_i_and_j < cut_off + 0.1 , "WARNING: The algorithm is wrong."
+                    bond_length_list[atom_i_type - 1][atom_j_type - 1].append(bond_length_i_and_j)
+                        
+        
+        bond_length_dict: dict[str, list[float]] = {}
+        for atom_i_type in range(1,len(self.atom_symbol_to_type)+1):
+            for atom_j_type in range(1,len(self.atom_symbol_to_type)+1):
+                if atom_i_type < atom_j_type:
+                    bond = f"{self.atom_type_to_symbol[atom_i_type]}-{self.atom_type_to_symbol[atom_j_type]}"
+                    if bond in bond_length_dict:
+                        bond_length_dict[bond] += bond_length_list[atom_i_type - 1][atom_j_type - 1]
+                    else:
+                        bond_length_dict[bond] = bond_length_list[atom_i_type - 1][atom_j_type - 1]
+                elif atom_i_type >= atom_j_type:
+                    bond = f"{self.atom_type_to_symbol[atom_j_type]}-{self.atom_type_to_symbol[atom_i_type]}"
+                    if bond in bond_length_dict:
+                        bond_length_dict[bond] += bond_length_list[atom_i_type - 1][atom_j_type - 1]
+                    else:
+                        bond_length_dict[bond] = bond_length_list[atom_i_type - 1][atom_j_type - 1]
+
+        """sum_list = 0
+        for i in range(len(bond_length_list)):
+            for j in range(len(bond_length_list[i])):
+                a = len(bond_length_list[i][j])
+                print(f"{i}-{j} {a}")
+                sum_list += a
+        print(f"sum ={sum_list}")
+
+        sum_dict = 0
+        for key in bond_length_dict.keys():
+            a = len(bond_length_dict[key])
+            print(f"{key} {a}")
+            sum_dict += a
+        print(f"dict sum = {sum_dict}")"""
+        return bond_length_dict
+    
+    def get_bond_length_group(self, cut_off: float, interval: float) -> list[list[float]]:
+        """
+        neighbor_listを利用してcutoff内の2原子間の距離を結合種ごとに分類します。
+
+        Return
+        ------
+            get_bond_lengthから得られた配列
+            C-C: 1.8000, 1.9800, 1.6000...
+            C-H: 1.1000, 1.2500, 1.0500...
+            .
+            .
+            .
+            Fe-Fe: 2.5000, 2.80000, 2.4600....
+            をintervalごとに要素数を数える
+            C-C: 0, 0, 0, 10, 1400, 20000, ... 0, 0 
+            C-H: 0, 0, 3, 40, 5000, 64000, ... 0, 0
+            .
+            .
+            .
+            Fe-Fe: 0, 0, 0, 0, 20, 300, ... 400, 0
+        """
+        bond_length_dict = self.get_bond_length(cut_off=cut_off)
+        #print(bond_length_dict)
+        #exit()
+        bond_length_group_dict: dict[str, list[int]] = {}
+
+        group_num = int(np.ceil(cut_off/interval))
+        for bond_key in bond_length_dict.keys():
+            bond_length_group = np.zeros(group_num, dtype=int)
+            for bond_length in bond_length_dict[bond_key]:
+                for group_no in range(group_num):
+                    #print(group_no*interval)
+                    if group_no* interval <= bond_length and (group_no+1)*interval > bond_length:
+                        bond_length_group[group_no] += 1
+            bond_length_group_dict[bond_key] = bond_length_group
+        
+        return bond_length_group_dict
